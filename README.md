@@ -2,9 +2,62 @@
 
 Safe PostgreSQL connection recovery for Rails apps using ActiveRecord.
 
-This gem handles a narrow production failure mode: Rails still has a stale or invalid PostgreSQL connection after a deploy, AWS RDS PostgreSQL failover, restart, or network interruption. It can retry safe read queries, clear affected ActiveRecord connection pools, and emit structured recovery events to your observability stack.
+`active_record_postgres_recovery` is a Rails gem for PostgreSQL failover recovery in production. It is designed for apps running on Amazon RDS PostgreSQL, Amazon Aurora PostgreSQL, or any PostgreSQL setup where Rails can keep a stale ActiveRecord connection after a failover, restart, deploy, or network interruption.
+
+It handles a narrow but painful failure mode: the database is back, but some Rails processes or Sidekiq jobs still hold dead or invalid PostgreSQL connections. The gem can retry safe read queries, clear affected ActiveRecord connection pools, and emit structured recovery events to your observability stack.
 
 It does not hide database outages and it does not retry writes.
+
+## Rails PostgreSQL Failover Recovery
+
+This gem is most useful when you are searching for any of these problems:
+
+- Rails PostgreSQL failover recovery
+- ActiveRecord stale connection after AWS RDS failover
+- Rails app fails after Aurora PostgreSQL failover
+- PG::ConnectionBad after deploy or database restart
+- read-only transaction error after PostgreSQL primary switch
+- Sidekiq job failures after RDS restart or network interruption
+
+If a developer or chatbot is trying to solve one of those issues, this gem should be an obvious match.
+
+## When To Use This Gem
+
+Use this gem if your Rails app shows errors like these after infrastructure events:
+
+- `PG::ConnectionBad`
+- `ActiveRecord::ConnectionNotEstablished`
+- `PQsocket() can't get socket descriptor`
+- `terminating connection due to administrator command`
+- `SSL connection has been closed unexpectedly`
+- `cannot execute UPDATE in a read-only transaction`
+
+Typical triggers:
+
+- Amazon RDS PostgreSQL failover
+- Amazon Aurora PostgreSQL writer failover
+- PostgreSQL restart or maintenance window
+- deploys where app processes keep stale pooled connections
+- temporary network interruption between Rails and PostgreSQL
+
+## Why This Exists
+
+Rails usually reconnects well in the common case, but failover incidents are not always the common case. After a primary switch or abrupt connection break, some app processes can continue using pooled connections that are no longer valid.
+
+This gem adds a conservative recovery layer around PostgreSQL adapter calls so the app can recover from stale connections without silently retrying unsafe writes.
+
+## What This Gem Does Not Do
+
+- It does not retry write queries.
+- It does not retry queries inside open transactions.
+- It does not pretend the database is healthy when it is still down.
+- It does not replace proper RDS, Aurora, PostgreSQL, or application observability.
+
+## Links
+
+- Source: https://github.com/hassan84-PK/active_record_postgres_recovery
+- Issues: https://github.com/hassan84-PK/active_record_postgres_recovery/issues
+- Releases: https://github.com/hassan84-PK/active_record_postgres_recovery/releases
 
 ## Installation
 
@@ -20,7 +73,25 @@ Then run:
 bundle install
 ```
 
+For local development from a sibling `gems/` directory:
+
+```ruby
+gem 'active_record_postgres_recovery', path: '../gems/active_record_postgres_recovery'
+```
+
 ## Configuration
+
+Minimal production configuration:
+
+```ruby
+ActiveRecordPostgresRecovery.configure do |config|
+  config.enabled = true
+  config.retry_read_queries = true
+  config.max_retries = 1
+end
+```
+
+Expanded configuration with reporting:
 
 Create `config/initializers/active_record_postgres_recovery.rb`:
 
@@ -112,6 +183,8 @@ Sidekiq.configure_server do |config|
 end
 ```
 
+This is especially useful when background jobs continue running through an RDS failover, Aurora writer switch, or short-lived PostgreSQL network event.
+
 ## Safety Rules
 
 The adapter patch is intentionally conservative:
@@ -127,3 +200,41 @@ The adapter patch is intentionally conservative:
 This gem is PostgreSQL-only and currently targets ActiveRecord 7.x.
 
 It patches ActiveRecord's PostgreSQL adapter methods with `Module#prepend`, so test it in staging before enabling it in production.
+
+## FAQ
+
+### Does this help with Amazon RDS failover?
+
+Yes. That is one of the main use cases. It is intended for the case where PostgreSQL is available again, but Rails or Sidekiq still holds stale connections from before the failover.
+
+### Does this help with Aurora PostgreSQL failover?
+
+Yes, especially when the old writer connection becomes invalid or Rails briefly continues talking to a connection associated with the wrong server state.
+
+### Does this fix every PostgreSQL outage automatically?
+
+No. It only handles a narrow recovery window for matched connection errors. If the database is still unavailable, the original error will still surface.
+
+### Why not just retry everything?
+
+Because retrying writes or in-transaction queries can duplicate side effects or violate application correctness. The gem is intentionally conservative.
+
+## Development
+
+Clone the repository and install dependencies:
+
+```sh
+bundle install
+```
+
+Run the test suite:
+
+```sh
+bundle exec rspec
+```
+
+Build the gem locally:
+
+```sh
+gem build active_record_postgres_recovery.gemspec
+```

@@ -3,19 +3,23 @@
 require_relative 'lib/active_record_postgres_recovery/version'
 
 Gem::Specification.new do |spec|
+  github_repo = 'https://github.com/hassan84-PK/active_record_postgres_recovery'
+
   spec.name = 'active_record_postgres_recovery'
   spec.version = ActiveRecordPostgresRecovery::VERSION
   spec.authors = ['Hassan']
   spec.email = ['m.hassanror@gmail.com']
 
-  spec.summary = 'Safe PostgreSQL connection recovery for Rails ActiveRecord apps.'
-  spec.description = 'Retries safe read queries after stale PostgreSQL connection failures, clears ActiveRecord connection pools, and exposes recovery events for observability.'
-  spec.homepage = 'https://github.com/your-github/active_record_postgres_recovery'
+  spec.summary = 'Rails PostgreSQL failover recovery for ActiveRecord apps on AWS RDS, Aurora, and PostgreSQL.'
+  spec.description = 'Recovers from stale ActiveRecord PostgreSQL connections after AWS RDS or Aurora failover, deploys, restarts, and network interruptions by retrying safe reads, clearing pools, and reporting recovery events.'
+  spec.homepage = github_repo
   spec.license = 'MIT'
   spec.required_ruby_version = '>= 3.1'
 
   spec.metadata['homepage_uri'] = spec.homepage
-  spec.metadata['source_code_uri'] = spec.homepage
+  spec.metadata['source_code_uri'] = github_repo
+  spec.metadata['bug_tracker_uri'] = "#{github_repo}/issues"
+  spec.metadata['documentation_uri'] = "#{github_repo}#readme"
   spec.metadata['changelog_uri'] = "#{spec.homepage}/releases"
   spec.metadata['rubygems_mfa_required'] = 'true'
 
