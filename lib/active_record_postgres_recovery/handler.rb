@@ -1,10 +1,12 @@
 # frozen_string_literal: true
 
 require 'active_record'
+require 'pg'
 require_relative 'recovery_event'
 
 module ActiveRecordPostgresRecovery
   module Handler
+    DB_CONNECTIVITY_ERROR_CLASSES = [PG::ConnectionBad, ActiveRecord::ConnectionNotEstablished].freeze
     READ_ONLY_TRANSACTION_MESSAGE = /read-only transaction/i
     RECOVERY_REPORTED_IVAR = :@active_record_postgres_recovery_reported
 
@@ -29,9 +31,9 @@ module ActiveRecordPostgresRecovery
 
     def clear_failover_connections!
       roles = ActiveRecordPostgresRecovery.configuration.failover_clear_roles
-      clear_all_connections!(roles: roles).merge(
-        build_clear_action(strategy: 'failover_all', performed: true, roles: roles)
-      )
+      build_clear_action(strategy: 'failover_all', performed: true, roles: roles).tap do
+        clear_all_connections!(roles: roles)
+      end
     end
 
     def read_only_transaction_error?(error)
@@ -68,9 +70,14 @@ module ActiveRecordPostgresRecovery
     end
 
     def matching_error(error)
-      find_error_in_chain(error) { |current| connection_error_message?(current.message) }
+      find_error_in_chain(error) { |current| connection_error?(current) }
     end
     private_class_method :matching_error
+
+    def connection_error?(error)
+      DB_CONNECTIVITY_ERROR_CLASSES.any? { |klass| error.is_a?(klass) } || connection_error_message?(error.message)
+    end
+    private_class_method :connection_error?
 
     def connection_error_message?(message)
       ActiveRecordPostgresRecovery.configuration.error_patterns.any? { |pattern| message.to_s.match?(pattern) }

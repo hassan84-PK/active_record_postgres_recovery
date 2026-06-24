@@ -19,6 +19,12 @@ RSpec.describe ActiveRecordPostgresRecovery::Handler do
       expect(described_class.db_connectivity_error?(error)).to be(true)
     end
 
+    it 'matches ActiveRecord connection-not-established failures' do
+      error = ActiveRecord::ConnectionNotEstablished.new('connection is closed')
+
+      expect(described_class.db_connectivity_error?(error)).to be(true)
+    end
+
     it 'matches wrapped read-only transaction failures' do
       cause = StandardError.new('ERROR: cannot execute UPDATE in a read-only transaction')
       error = ActiveRecord::StatementInvalid.new('PG::ReadOnlySqlTransaction')
@@ -42,6 +48,21 @@ RSpec.describe ActiveRecordPostgresRecovery::Handler do
 
       expect(described_class.clear_active_connections!).to eq(
         strategy: 'active',
+        performed: true,
+        roles: %i[writing reading],
+        skipped_reason: nil
+      )
+    end
+  end
+
+  describe '.clear_all_connections!' do
+    it 'fully clears configured roles' do
+      allow(ActiveRecord::Base).to receive(:connection_handler).and_return(handler)
+      expect(handler).to receive(:clear_all_connections!).with(:writing).ordered
+      expect(handler).to receive(:clear_all_connections!).with(:reading).ordered
+
+      expect(described_class.clear_all_connections!).to eq(
+        strategy: 'all',
         performed: true,
         roles: %i[writing reading],
         skipped_reason: nil
@@ -84,6 +105,27 @@ RSpec.describe ActiveRecordPostgresRecovery::Handler do
         matched_error_class: 'PG::ConnectionBad',
         matched_error_message: "PQsocket() can't get socket descriptor"
       )
+    end
+
+    it 'does not let reporter failures mask recovery behavior' do
+      error = PG::ConnectionBad.new("PQsocket() can't get socket descriptor")
+      allow(ActiveRecordPostgresRecovery).to receive(:warn)
+
+      ActiveRecordPostgresRecovery.configure do |config|
+        config.reporter = ->(_event) { raise 'reporter unavailable' }
+      end
+
+      expect do
+        described_class.report_recovery(
+          context: 'SQL Guest Load',
+          error: error,
+          retrying: false,
+          source: 'ActiveRecord',
+          outcome: :attempted
+        )
+      end.not_to raise_error
+
+      expect(ActiveRecordPostgresRecovery).to have_received(:warn).with(/reporter failed/)
     end
   end
 end

@@ -6,7 +6,7 @@ Gem::Specification.new do |spec|
   spec.name = 'active_record_postgres_recovery'
   spec.version = ActiveRecordPostgresRecovery::VERSION
   spec.authors = ['Hassan']
-  spec.email = ['']
+  spec.email = ['m.hassanror@gmail.com']
 
   spec.summary = 'Safe PostgreSQL connection recovery for Rails ActiveRecord apps.'
   spec.description = 'Retries safe read queries after stale PostgreSQL connection failures, clears ActiveRecord connection pools, and exposes recovery events for observability.'

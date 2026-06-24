@@ -2,7 +2,7 @@
 
 Safe PostgreSQL connection recovery for Rails apps using ActiveRecord.
 
-This gem handles a narrow production failure mode: Rails still has a stale or invalid PostgreSQL connection after a deploy, AWS RDS PostgreSQL failover, restart, or network interruption. It can retry safe read queries once, clear affected ActiveRecord connection pools, and emit structured recovery events to your observability stack.
+This gem handles a narrow production failure mode: Rails still has a stale or invalid PostgreSQL connection after a deploy, AWS RDS PostgreSQL failover, restart, or network interruption. It can retry safe read queries, clear affected ActiveRecord connection pools, and emit structured recovery events to your observability stack.
 
 It does not hide database outages and it does not retry writes.
 
@@ -12,12 +12,6 @@ Add this line to your Rails app Gemfile:
 
 ```ruby
 gem 'active_record_postgres_recovery'
-```
-
-For local development from a sibling `gems/` directory:
-
-```ruby
-gem 'active_record_postgres_recovery', path: '../gems/active_record_postgres_recovery'
 ```
 
 Then run:
@@ -47,7 +41,7 @@ ActiveRecordPostgresRecovery.configure do |config|
 end
 ```
 
-The reporter is optional. Without one, recovery still runs but events are not sent anywhere.
+The reporter is optional. Without one, recovery still runs but events are not sent anywhere. If the reporter itself raises, the gem logs a warning and continues without masking the database recovery path.
 
 For production rollouts, prefer environment-backed switches so recovery can be disabled without a deploy:
 
@@ -72,7 +66,7 @@ end
 | --- | --- | --- |
 | `enabled` | `true` | Enables recovery handling. When false, matching database errors are re-raised without recovery logic. |
 | `reporter` | `nil` | Callable that receives a `RecoveryEvent`. Use this to send recovery data to Bugsnag, Datadog, logs, or metrics. |
-| `roles` | `%i[writing reading]` | ActiveRecord roles cleared for normal stale connection errors. |
+| `roles` | `%i[writing reading]` | ActiveRecord roles whose pools are fully cleared for normal stale connection errors. |
 | `failover_clear_roles` | `%i[writing]` | ActiveRecord roles cleared when a read-only transaction error indicates a bad failover/write connection. |
 | `retry_read_queries` | `true` | Enables one or more retries for safe read queries outside transactions. |
 | `max_retries` | `1` | Maximum retry attempts for retryable read queries. Writes are still never retried. |
@@ -100,7 +94,7 @@ The reporter receives an event with these attributes:
 | `error` | Original exception. |
 | `matched_error` | Exception in the cause chain that matched `error_patterns`. |
 | `retrying` | Whether the operation was retrying. |
-| `clear_action` | Hash describing which connection pools were cleared. |
+| `clear_action` | Hash describing which connection pools were cleared before the retry or re-raise. |
 
 Use `event.to_h` for structured metadata safe to attach to observability tools.
 
@@ -122,11 +116,11 @@ end
 
 The adapter patch is intentionally conservative:
 
-- A non-transactional read query may reconnect and retry once.
+- A non-transactional read query may clear the configured pools, reconnect, and retry.
 - Write queries are not retried automatically.
 - Queries inside an open transaction are not retried automatically.
-- Matching write or transaction failures clear affected connection pools, report the event, and re-raise.
-- Read-only transaction errors clear the writing pool to force ActiveRecord away from a bad failover connection.
+- Matching write or transaction failures clear the configured pools, report the event, and re-raise.
+- Read-only transaction errors clear the configured failover roles to force ActiveRecord away from a bad primary connection.
 
 ## Supported Scope
 

@@ -15,7 +15,7 @@ module ActiveRecordPostgresRecovery
       clear_action = if Handler.read_only_transaction_error?(e)
                        Handler.clear_failover_connections!
                      else
-                       Handler.clear_active_connections!
+                       Handler.clear_all_connections!
                      end
       Handler.report_attempted_recovery(
         context: sidekiq_context(worker, job, queue),

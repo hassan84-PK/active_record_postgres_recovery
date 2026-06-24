@@ -3,7 +3,7 @@
 require 'spec_helper'
 
 RSpec.describe ActiveRecordPostgresRecovery::PostgresqlAdapterPatch do
-  let(:active_clear_action) { { strategy: 'active', performed: true, roles: %i[writing reading], skipped_reason: nil } }
+  let(:all_clear_action) { { strategy: 'all', performed: true, roles: %i[writing reading], skipped_reason: nil } }
   let(:failover_clear_action) { { strategy: 'failover_all', performed: true, roles: %i[writing], skipped_reason: nil } }
 
   let(:adapter_class) do
@@ -57,7 +57,7 @@ RSpec.describe ActiveRecordPostgresRecovery::PostgresqlAdapterPatch do
   end
 
   before do
-    allow(ActiveRecordPostgresRecovery::Handler).to receive(:clear_active_connections!).and_return(active_clear_action)
+    allow(ActiveRecordPostgresRecovery::Handler).to receive(:clear_all_connections!).and_return(all_clear_action)
     allow(ActiveRecordPostgresRecovery::Handler).to receive(:clear_failover_connections!).and_return(failover_clear_action)
     allow(ActiveRecordPostgresRecovery::Handler).to receive(:report_attempted_recovery)
     allow(ActiveRecordPostgresRecovery::Handler).to receive(:report_successful_recovery)
@@ -78,8 +78,21 @@ RSpec.describe ActiveRecordPostgresRecovery::PostgresqlAdapterPatch do
     expect(ActiveRecordPostgresRecovery::Handler).to have_received(:report_successful_recovery).with(
       context: 'SQL Guest Load',
       error: statement_error,
-      source: 'ActiveRecord'
+      source: 'ActiveRecord',
+      clear_action: all_clear_action
     ).once
+  end
+
+  it 'recovers from an initial ActiveRecord connection-not-established error' do
+    error = ActiveRecord::ConnectionNotEstablished.new("PQsocket() can't get socket descriptor")
+    adapter = adapter_class.new(error_sequence: [error])
+
+    result = adapter.execute('SELECT 1', 'Guest Load')
+
+    expect(result).to eq(:ok)
+    expect(adapter.calls).to eq(2)
+    expect(adapter.reconnects).to eq(1)
+    expect(ActiveRecordPostgresRecovery::Handler).to have_received(:clear_all_connections!).once
   end
 
   it 'uses configured max_retries for retryable read queries' do
@@ -109,7 +122,7 @@ RSpec.describe ActiveRecordPostgresRecovery::PostgresqlAdapterPatch do
       error: error,
       retrying: false,
       source: 'ActiveRecord',
-      clear_action: active_clear_action
+      clear_action: all_clear_action
     ).once
   end
 
@@ -126,7 +139,7 @@ RSpec.describe ActiveRecordPostgresRecovery::PostgresqlAdapterPatch do
     expect(ActiveRecordPostgresRecovery::Handler).not_to have_received(:report_attempted_recovery)
   end
 
-  it 'clears active connections and re-raises matched write query errors' do
+  it 'clears all configured connections and re-raises matched write query errors' do
     error = PG::ConnectionBad.new("PQsocket() can't get socket descriptor")
     adapter = adapter_class.new(error_sequence: [error])
 
@@ -140,7 +153,26 @@ RSpec.describe ActiveRecordPostgresRecovery::PostgresqlAdapterPatch do
       error: error,
       retrying: false,
       source: 'ActiveRecord',
-      clear_action: active_clear_action
+      clear_action: all_clear_action
+    ).once
+  end
+
+  it 'reports attempted recovery once when reconnect fails after clearing the pool' do
+    error = PG::ConnectionBad.new("PQsocket() can't get socket descriptor")
+    reconnect_error = PG::ConnectionBad.new("PQsocket() can't get socket descriptor")
+    adapter = adapter_class.new(error_sequence: [error], reconnect_error: reconnect_error)
+
+    expect do
+      adapter.execute('SELECT 1', 'Guest Load')
+    end.to raise_error(PG::ConnectionBad, /PQsocket\(\) can't get socket descriptor/)
+
+    expect(ActiveRecordPostgresRecovery::Handler).to have_received(:clear_all_connections!).once
+    expect(ActiveRecordPostgresRecovery::Handler).to have_received(:report_attempted_recovery).with(
+      context: 'SQL Guest Load',
+      error: reconnect_error,
+      retrying: true,
+      source: 'ActiveRecord',
+      clear_action: all_clear_action
     ).once
   end
 
