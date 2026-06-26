@@ -19,15 +19,15 @@ RSpec.describe ActiveRecordPostgresRecovery::PostgresqlAdapterPatch do
         @reconnects = 0
       end
 
-      def execute_and_clear(_sql, _name, _binds, prepare: false, async: false)
+      def execute_and_clear(_sql, _name, *_args, **_kwargs)
         perform_call
       end
 
-      def query(_sql, _name = nil)
+      def query(_sql, _name = nil, *_args, **_kwargs)
         perform_call
       end
 
-      def execute(_sql, _name = nil)
+      def execute(_sql, _name = nil, *_args, **_kwargs)
         perform_call
       end
 
@@ -64,6 +64,12 @@ RSpec.describe ActiveRecordPostgresRecovery::PostgresqlAdapterPatch do
     allow(ActiveRecordPostgresRecovery::Handler).to receive(:read_only_transaction_error?).and_call_original
   end
 
+  it 'accepts additional ActiveRecord adapter keywords when prepended' do
+    expect(adapter_class.instance_method(:execute).parameters).to include([:keyrest])
+    expect(adapter_class.instance_method(:execute_and_clear).parameters).to include([:keyrest])
+    expect(adapter_class.instance_method(:query).parameters).to include([:keyrest])
+  end
+
   it 'retries a read-only query once after a matched db connectivity error' do
     pg_error = PG::ConnectionBad.new("PQsocket() can't get socket descriptor")
     statement_error = ActiveRecord::StatementInvalid.new('statement failed')
@@ -81,6 +87,23 @@ RSpec.describe ActiveRecordPostgresRecovery::PostgresqlAdapterPatch do
       source: 'ActiveRecord',
       clear_action: all_clear_action
     ).once
+  end
+
+  it 'forwards additional adapter keywords without raising' do
+    adapter = adapter_class.new
+
+    result = adapter.execute_and_clear(
+      'SELECT 1',
+      'Guest Load',
+      [],
+      prepare: false,
+      async: false,
+      allow_retry: true,
+      materialize_transactions: false
+    )
+
+    expect(result).to eq(:ok)
+    expect(adapter.calls).to eq(1)
   end
 
   it 'recovers from an initial ActiveRecord connection-not-established error' do
