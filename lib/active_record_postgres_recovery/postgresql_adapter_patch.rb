@@ -9,19 +9,19 @@ module ActiveRecordPostgresRecovery
     QUERY_EXCEPTIONS = [ActiveRecord::StatementInvalid, ActiveRecord::ConnectionNotEstablished, PG::ConnectionBad].freeze
     RECONNECT_EXCEPTIONS = [ActiveRecord::ConnectionNotEstablished, PG::ConnectionBad].freeze
 
-    def execute_and_clear(sql, name, binds, prepare: false, async: false, &block)
+    def execute_and_clear(sql, name, *, **, &block)
       active_record_postgres_recovery_with_retry(sql, active_record_postgres_recovery_context(name)) do
         super
       end
     end
 
-    def query(sql, name = nil)
+    def query(sql, name = nil, *, **, &block)
       active_record_postgres_recovery_with_retry(sql, active_record_postgres_recovery_context(name)) do
         super
       end
     end
 
-    def execute(sql, name = nil)
+    def execute(sql, name = nil, *, **, &block)
       active_record_postgres_recovery_with_retry(sql, active_record_postgres_recovery_context(name)) do
         super
       end
